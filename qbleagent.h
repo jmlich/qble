@@ -5,7 +5,7 @@
 #include <QEventLoop>
 #include <optional>
 
-class QBLEAgent : public QObject {
+class QBLEAgent : public QObject, protected QDBusContext {
     Q_OBJECT
     Q_CLASSINFO("D-Bus Interface", "org.bluez.Agent1")
 public:
@@ -45,6 +45,8 @@ signals:
     void pairingAccepted(const QString &devicePath);
 
 private:
+
+    QDBusMessage m_pending_confirmation_call;
 
     std::optional<uint> m_request_passkey_response;
     QString m_request_pincode_response;

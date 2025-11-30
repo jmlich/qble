@@ -69,23 +69,15 @@ QString QBLEAgent::RequestPinCode(const QDBusObjectPath &device) {
 
 void QBLEAgent::RequestConfirmation(const QDBusObjectPath &device, uint passkey) {
     qDebug() << Q_FUNC_INFO << "RequestConfirmation called!" << device.path() << passkey;
-    m_request_confirmation_response = std::nullopt;
     QString deviceName = getDeviceName(device);
     if (deviceName.isEmpty()) {
         deviceName = device.path();
     }
-    QEventLoop loop;
-    m_wait_for_response_loop = &loop;
-    emit UIRequestConfirmation(deviceName, device.path(), passkey);
-    loop.exec();
-    qDebug() << Q_FUNC_INFO << "accepted" << m_request_confirmation_response.value_or(false);
 
-    if (m_request_confirmation_response.value_or(false)) {
-        emit pairingAccepted(device.path());
-        return;
-    } else {
-        throw QDBusError(QDBusError::AccessDenied, "User rejected pairing");
-    }
+    m_pending_confirmation_call = message();
+    qDebug() << m_pending_confirmation_call.type();
+
+    emit UIRequestConfirmation(deviceName, device.path(), passkey);
 
 }
 
@@ -122,9 +114,35 @@ void QBLEAgent::requestPinCodeResponse(const QString& response) {
 }
 
 void QBLEAgent::requestConfirmationResponse(const bool accepted) {
-    m_request_confirmation_response = accepted;
-    if (m_wait_for_response_loop) {
-        m_wait_for_response_loop->quit();
-        m_wait_for_response_loop = nullptr;
+
+    if (m_pending_confirmation_call.type() == QDBusMessage::InvalidMessage) {
+        qWarning() << Q_FUNC_INFO << "No pending DBus call!";
+        return;
     }
+
+    QDBusConnection bus = QDBusConnection::systemBus();
+
+    if (accepted) {
+        qDebug() << Q_FUNC_INFO << "User accepted pairing";
+
+        QDBusMessage reply = m_pending_confirmation_call.createReply();
+        bus.send(reply);
+
+        const QString device = m_pending_confirmation_call.arguments().at(0).toString();
+        qDebug() << Q_FUNC_INFO << device;
+        emit pairingAccepted(device);
+
+    } else {
+        qDebug() << Q_FUNC_INFO << "User rejected pairing";
+
+        QDBusMessage err =
+            m_pending_confirmation_call.createErrorReply(
+                "org.bluez.Error.Rejected",
+                "User rejected pairing"
+                );
+        bus.send(err);
+    }
+
+    m_pending_confirmation_call = QDBusMessage();
+
 }
